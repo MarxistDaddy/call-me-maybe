@@ -1,0 +1,28 @@
+{
+  "movies": [
+    {
+      "title": "The Matrix",
+      "year": 1999,
+      "director": "Lana Wachowski",
+      "rating": 8.7,
+      "genre": ["Sci-Fi", "Action"],
+      "streaming": "Netflix"
+    },
+    {
+      "title": "Inception",
+      "year": 2010,
+      "director": "Christopher Nolan",
+      "rating": 8.8,
+      "genre": ["Sci-Fi", "Thriller"],
+      "streaming": "HBO Max"
+    },
+    {
+      "title": "The Dark Knight",
+      "year": 2008,
+      "director": "Christopher Nolan",
+      "rating": 9.0,
+      "genre": ["Action", "Drama"],
+      "streaming": "HBO Max"
+    }
+  ]
+}
