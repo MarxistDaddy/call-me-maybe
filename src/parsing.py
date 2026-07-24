@@ -10,6 +10,7 @@ class Parser:
 
 
     def parsing(self):
+        
         p = argparse.ArgumentParser(usage=
             "uv main.py --functions_definition <function_def> "
             "--input <input>"
@@ -17,12 +18,24 @@ class Parser:
             "--model <model>"
         )
 
-        p.add_argument("--functions_definition", type=str,
-            default="../data/input/functions_definition.json")
-        p.add_argument("--input", type=str,
-            default="./data/input/function_calling_tests.json")
-        p.add_argument("--output", type=str)
-        p.add_argument("--model", type=str)
+        p.add_argument("-f", "--functions_definition",
+            default="../data/input/functions_definition.json"
+        )
+
+        p.add_argument(
+            "-i", "--input",
+            default="./data/input/function_calling_tests.json"
+        )
+
+        p.add_argument(
+            "-o", "--output",
+            default="./dara/output/function_calls.json"
+        )
+
+        p.add_argument(
+            "-m", "--model",
+            default="Qwen/Qwen3-0.6b"
+        )
 
         args = p.parse_args()
 
