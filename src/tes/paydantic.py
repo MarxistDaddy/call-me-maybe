@@ -15,16 +15,16 @@ def main():
             rang = "21",
             name = "atlas",
             age = 19,
-            job = 13
+            job = True
         )
     except Exception as e:
         print(f"[ERROR] {e.errors()[0]['msg']}")
         return
 
-    print(ist.rang)
-    print(ist.name)
-    print(ist.age)
-    print(ist.job)
+    print(ist)
+    #print(ist.name)
+    #print(ist.age)
+    #print(ist.job)
 
 if __name__ == "__main__":
     main()

@@ -19,7 +19,7 @@ class Parser:
         )
 
         p.add_argument("-f", "--functions_definition",
-            default="../data/input/functions_definition.json"
+            default="./data/input/functions_definition.json"
         )
 
         p.add_argument(
