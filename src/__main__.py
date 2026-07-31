@@ -10,6 +10,7 @@ from llm_sdk import Small_LLM_Model
 
 from .parsing import Parser
 from .validate import PromptsList, FncDefs
+from .fsm import FSM
 
 
 def main():
@@ -55,7 +56,7 @@ def main():
         #print(f_json)
    
     functions = FncDefs(functions_def=f_json).functions_def
-    #print(functions)
+    print(functions)
 
     functions_format = "\n".join(
         f"{func.name}({', '.join(f'{k}: {v.type}' for k, v in func.parameters.items())})-{func.description}"
@@ -98,11 +99,14 @@ def main():
         for key in v:
             vocab_pins.setdefault(key[0], {}).update({key: v[key]})
             
-        print(vocab_pins["p"])
+        #print(vocab_pins["p"])
 
     return_pins(vocab_dict)
-
-    #vocab_pins = 
+    
+    fsm = FSM(functions)
+    fsm.build_state()    
+     
+    
     
 if __name__ == "__main__":
     main()
