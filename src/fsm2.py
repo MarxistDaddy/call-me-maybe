@@ -19,24 +19,22 @@ class FSM:
         for c in start:
             self.prefix_tree.setdefault(self.state, {})[c] = self.state + 1
             self.state += 1
-        
-        
-        self.saved_state = self.state #10
 
-        # 2. Iterate through function definitions | buid the name. parameter, values: fetch then store!
+        self.saved_state = self.state
+
+        # 2. Iterate through function definitions
         for fnc in self.functions:
-            curr_fnc_state = self.saved_state #save the state == 10
+            curr_fnc_state = self.saved_state
 
-            # build the name first, after tokenizing it!
+            # Build the function name
             for c in self.tr_token(fnc.name):
-                if c in self.prefix_tree.get(curr_fnc_state, {}): #does c exit at 10_state!
+                if c in self.prefix_tree.get(curr_fnc_state, {}):
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
                 else:
                     next_state = self.state + 1
                     self.prefix_tree.setdefault(curr_fnc_state, {})[c] = next_state
                     self.state = next_state
                     curr_fnc_state = self.state
-
 
             # Build parameters key branch
             for c in params:
@@ -48,18 +46,12 @@ class FSM:
                     self.state = next_state
                     curr_fnc_state = self.state
 
-            #length of parameters
             num_params = len(fnc.parameters)
-            #curr_fnc_state, and self.state == the same thing!
 
             # 3. Build parameter keys and type constraints
             for index, (key, param_obj) in enumerate(fnc.parameters.items(), 1):
-                #a: type='number' | 1_index, (key: param_obj) | a type='number'
-
-                #choosing the format and first and > first keys of params!
                 prefix = f' "{key}": ' if index > 1 else f'"{key}": '
 
-                #tokenize the prefix
                 for c in self.tr_token(prefix):
                     if c in self.prefix_tree.get(curr_fnc_state, {}):
                         curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
@@ -74,11 +66,10 @@ class FSM:
 
                 # 4. Handle parameter comma vs closing object braces
                 if is_last_param:
-                    # Collapse all valid exit states into a single unified "}}" tail
                     brace_1 = self.state + 1
                     for exit_s in exit_states:
                         self.prefix_tree.setdefault(exit_s, {})["}"] = brace_1
-                    
+
                     brace_2 = brace_1 + 1
                     self.prefix_tree.setdefault(brace_1, {})["}"] = brace_2
                     self.state = brace_2
@@ -103,87 +94,80 @@ class FSM:
         if param_type == "integer":
             return self.build_int_state(curr_state)
         elif param_type == "number":
-            return self.build_number_state()
+            return self.build_number_state(curr_state)
         else:
             return self.build_string_state(curr_state)
 
+    def build_string_state(self, curr_state: int) -> list[int]:
+        s_body = self.state + 1
+        s_close = self.state + 2
 
-    def build_number_state(self) -> list[int]:
-        state = self.state
-        
-        f_nums = "-0123456789" # 48: -, 49: 0, 50: 1-9
-        for c in f_nums:
-            if c == "-":
-                self.prefix_tree.setdefault(state, {})[c] = state + 1 #48 
-            elif c == "0":
-                self.prefix_tree.setdefault(state, {})[c] = state + 2 #49
-            else:
-                self.prefix_tree.setdefault(state, {})[c] = state + 3 #50
+        self.prefix_tree.setdefault(curr_state, {})['"'] = s_body
+        self.prefix_tree.setdefault(s_body, {})[None] = s_body
+        self.prefix_tree.setdefault(s_body, {})['"'] = s_close
 
-        #state = 47
-        for c in "0123456789":
-            if c == "0":
-                self.prefix_tree.setdefault(state + 1, {})[c] = state + 2 #48: 0: '.' or ',' | 49
-            else:
-                self.prefix_tree.setdefault(state + 1, {})[c] = state + 3 #48: all number | 50
+        self.state += 2
+        return [s_close]
 
-        # state+2 (just '0' or '-0') -> '.' -> state+4
-        # build the state after . | either number '1-9' or ','
-        self.prefix_tree.setdefault(state + 2, {})["."] = state + 4
-
-        # state+3 (non-zero integer digits) -> '.' -> state+4 OR self-loop
-        self.prefix_tree.setdefault(state + 3, {})["."] = state + 4
-        for c in "0123456789":
-            self.prefix_tree.setdefault(state + 3, {})[c] = state + 3
-
-        # state+4 (after decimal point) -> must take at least one digit -> state+5
-        for c in "0123456789":
-            self.prefix_tree.setdefault(state + 4, {})[c] = state + 5
-
-        # state+5 (fractional digits self-loop)
-        for c in "0123456789":
-            self.prefix_tree.setdefault(state + 5, {})[c] = state + 5
-
-        self.state += 5
-
-        # Return ALL valid states where a number can stop generating
-        # state+2 = "0", state+3 = "42", state+5 = "42.5"
-        return [state + 2, state + 3, state + 5]
-
-
-    def build_int_state(self, curr_state: int) -> list[int]:
-        S = curr_state
+    def build_number_state(self, curr_state: int) -> list[int]:
+        s_neg = self.state + 1
+        s_zero = self.state + 2
+        s_int = self.state + 3
+        s_dot = self.state + 4
+        s_frac = self.state + 5
 
         f_nums = "-0123456789"
         for c in f_nums:
             if c == "-":
-                self.prefix_tree.setdefault(S, {})[c] = S + 1
+                self.prefix_tree.setdefault(curr_state, {})[c] = s_neg
             elif c == "0":
-                self.prefix_tree.setdefault(S, {})[c] = S + 2
+                self.prefix_tree.setdefault(curr_state, {})[c] = s_zero
             else:
-                self.prefix_tree.setdefault(S, {})[c] = S + 3
+                self.prefix_tree.setdefault(curr_state, {})[c] = s_int
 
         for c in "0123456789":
             if c == "0":
-                self.prefix_tree.setdefault(S + 1, {})[c] = S + 2
+                self.prefix_tree.setdefault(s_neg, {})[c] = s_zero
             else:
-                self.prefix_tree.setdefault(S + 1, {})[c] = S + 3
+                self.prefix_tree.setdefault(s_neg, {})[c] = s_int
+
+        self.prefix_tree.setdefault(s_zero, {})["."] = s_dot
+
+        self.prefix_tree.setdefault(s_int, {})["."] = s_dot
+        for c in "0123456789":
+            self.prefix_tree.setdefault(s_int, {})[c] = s_int
 
         for c in "0123456789":
-            self.prefix_tree.setdefault(S + 3, {})[c] = S + 3
+            self.prefix_tree.setdefault(s_dot, {})[c] = s_frac
+
+        for c in "0123456789":
+            self.prefix_tree.setdefault(s_frac, {})[c] = s_frac
+
+        self.state += 5
+        return [s_zero, s_int, s_frac]
+
+    def build_int_state(self, curr_state: int) -> list[int]:
+        s_neg = self.state + 1
+        s_zero = self.state + 2
+        s_int = self.state + 3
+
+        f_nums = "-0123456789"
+        for c in f_nums:
+            if c == "-":
+                self.prefix_tree.setdefault(curr_state, {})[c] = s_neg
+            elif c == "0":
+                self.prefix_tree.setdefault(curr_state, {})[c] = s_zero
+            else:
+                self.prefix_tree.setdefault(curr_state, {})[c] = s_int
+
+        for c in "0123456789":
+            if c == "0":
+                self.prefix_tree.setdefault(s_neg, {})[c] = s_zero
+            else:
+                self.prefix_tree.setdefault(s_neg, {})[c] = s_int
+
+        for c in "0123456789":
+            self.prefix_tree.setdefault(s_int, {})[c] = s_int
 
         self.state += 3
-
-        return [S + 2, S + 3]
-        
-    def build_string_state(self, curr_state: int) -> list[int]:
-        S = curr_state
-
-        self.prefix_tree.setdefault(S, {})['"'] = S + 1
-        self.prefix_tree.setdefault(S + 1, {})[None] = S + 1
-        self.prefix_tree.setdefault(S + 1, {})['"'] = S + 2
-
-        self.state += 2
-
-        return [S + 2]
-
+        return [s_zero, s_int]

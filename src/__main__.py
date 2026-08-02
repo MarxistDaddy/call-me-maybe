@@ -10,7 +10,7 @@ from llm_sdk import Small_LLM_Model
 
 from .parsing import Parser
 from .validate import PromptsList, FncDefs
-from .fsm import FSM
+from src.fsm2 import FSM
 
 
 def main():
