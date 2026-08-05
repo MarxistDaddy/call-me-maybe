@@ -29,7 +29,7 @@ class Parser:
 
         p.add_argument(
             "-o", "--output",
-            default="./dara/output/function_calls.json"
+            default="./dara/output/single_prompt.json"
         )
 
         p.add_argument(

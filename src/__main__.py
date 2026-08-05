@@ -1,113 +1,155 @@
+import builtins
 import json
 import time
 from pathlib import Path
 from typing import Any
-
 from pydantic import ValidationError
 from rich import print
-
+import numpy
 from llm_sdk import Small_LLM_Model
-
 from .parsing import Parser
 from .validate import PromptsList, FncDefs
-from src.fsm2 import FSM
+from src.fsm import FSM
+from src.utils import open_json, format_function, construct_vocab_pins
+
+MAX_STEPS = 512  # safety cap so a desynced FSM can't loop forever
 
 
 def main():
     parse = Parser()
     parse.parsing()
 
-    #print("--> ", parse.fnc_def)
-    #print(parse.input)
-    #print(parse.output)
-    #print(parse.model)
-    
-    #with open(parse.fnc_def) as f:
-    #    f.read()
-    #    print(f)
-    #print(parse.input)
-    #print(parse.output)
-    #print(parse.model)
-
     model = Small_LLM_Model()
+    input_json = open_json(parse.input)
+    valid_prompts = PromptsList(prompts=input_json).prompts
 
-    #i = 0
-    #while i < 10:
-    #    lst = model.encode(pro)
-    #    logits = model.get_logits_from_input_ids(lst[0].tolist())
-    #    res = model.decode(logits.index(max(logits)))
-    #    print(res, end="")
-    #    pro += res
-    #    i += 1
+    valid_functions, function_format = format_function(parse.fnc_def)
 
+    is_dir = parse.output.rfind("/")
+    if is_dir != -1:
+        directory = parse.output[:is_dir]
+        if len(directory) > 0:
+            Path(directory).mkdir(parents=True, exist_ok=True)
 
-    print(f"--> calling's path: '{parse.input}")
-    #open and read the input file, then save it in the json_pr | we have a list
-    with open(parse.input) as f:    
-        input_json = json.load(f) #--> json returns a list
-        #print(input_json)
+    vocab_path = model.get_path_to_vocab_file()
+    print(vocab_path)
+    vocab_json = open_json(model.get_path_to_vocab_file())
+    vocab_pins = construct_vocab_pins(vocab_json)
 
-    prompts = PromptsList(prompts=input_json).prompts
-    #print(prompts)
+    print(valid_functions)
+    fsm = FSM(valid_functions, vocab_pins, vocab_json)
+    fsm.build_state()
 
-    #print(f"--> calling's path: '{parse.fnc_def}")
-    with open(parse.fnc_def) as f:
-        f_json = json.load(f)
-        #print(f_json)
-   
-    functions = FncDefs(functions_def=f_json).functions_def
-    print(functions)
+    super_prompt = (
+        "<|im_start|>system\n"
+        "You are a strict data extraction assistant. Your ONLY job "
+        "is to extract the exact values from the user's request to "
+        "pass as parameters.\n"
+        "Rules:\n"
+        "1. Extract ONLY the numbers or strings explicitly present in the "
+        "text.\n"
+        "2. DO NOT invent, calculate, or guess any missing values.\n"
+        "3. DO NOT use placeholder numbers.\n Map the exact digits found in "
+        "the prompt to the required parameter.\n"
+        "functions definition:"
+        f"{valid_functions}"
+        "<|im_end|>"
+        "<|im_start|>user\n"
+    )
+    s_prompt_encoded: list[int] = model.encode(super_prompt)[0].tolist()
 
-    functions_format = "\n".join(
-        f"{func.name}({', '.join(f'{k}: {v.type}' for k, v in func.parameters.items())})-{func.description}"
-    for func in functions
+    start: float = time.time()
+    result = []
+
+    print("params length:   ", len(valid_prompts))
+    for p in valid_prompts:
+        fsm.current_state = 0
+        output = ""
+        pre_p = f"{p.prompt}<|im_end|>\n<|im_start|>assistant\n"
+
+        p_encoded: list[int] = model.encode(pre_p)[0].tolist()
+        full_prompt: list[int] = s_prompt_encoded + p_encoded
+
+        print(f"Prompt: {p.prompt!r}")
+        print("Generating: ", end="", flush=True)
+
+        steps = 0
+        while True:
+            steps += 1
+            if steps > MAX_STEPS:
+                print(
+                    f"\n[warn] hit MAX_STEPS for prompt: {p.prompt!r}, "
+                    f"partial output: {output!r}"
+                )
+                break
+
+            logits = model.get_logits_from_input_ids(full_prompt)
+            allowed_tokens = fsm.allowed_token(fsm.current_state)
+
+            # An empty allowed_tokens list means the FSM has no legal move
+            # from the current state - every following step will decode
+            # against an all -inf logit vector and argmax will just return
+            # index 0 every time. That's the "looks infinite" case: it isn't
+            # actually looping, it's stuck. Surface it immediately instead
+            # of silently grinding to MAX_STEPS.
+            if not allowed_tokens:
+                print(
+                    f"\n[warn] no allowed tokens at state {fsm.current_state} "
+                    f"(step {steps}) - FSM is stuck, breaking early. "
+                    f"partial output: {output!r}"
+                )
+                break
+
+            masked = fsm.mask_logits(logits, allowed_tokens)
+            next_token = int(numpy.argmax(masked))
+
+            full_prompt.append(next_token)
+            decoded_token = model.decode([next_token])
+            output += decoded_token
+
+            # Requirement: print output as it is generated, token by token.
+            # Uses builtins.print (not rich's) so characters like '[' in a
+            # decoded token aren't misread as rich markup.
+            builtins.print(decoded_token, end="", flush=True)
+
+            fsm.transition(decoded_token)
+            if fsm.current_state == -1:
+                fsm.current_state = 0
+                break
+
+        print()  # close the streamed line before the summary
+        print("Answer:")
+        up = p.prompt
+
+        # Always normalize backslashes before parsing, rather than trying to
+        # guess from the first occurrence whether escaping is needed - that
+        # approach breaks on IndexError (trailing backslash) and on mixed
+        # escaped/unescaped sequences.
+        output = output.replace("\\", "\\\\")
+
+        try:
+            json_format = json.loads(output)
+        except json.JSONDecodeError:
+            print(f"[skip] malformed output for prompt: {p.prompt!r} -> {output!r}")
+            continue
+
+        json_format = {"prompt": up, **json_format}
+        print(
+            json.dumps(json_format, indent=4, ensure_ascii=False), end="\n\n"
         )
+        result.append(json_format)
 
-    #print(functions_format)
+        # Write incrementally so a crash mid-run doesn't lose everything
+        # gathered so far.
+        with open(parse.output, "w") as file:
+            json.dump(result, file, indent=4)
 
-    super_prompt = """
-        <|im_start|>system
-        You are a strict data extraction assistant. Your ONLY task is to extract exact parameter values from the user's input and map them to a valid function signature.
-        
-        Available Functions:
-        {functions_format}
-        
-        STRICT OPERATIONAL RULES:
-        1. EXPLICIT MATCHING: Extract ONLY numbers, strings, or booleans explicitly written in the user's text.
-        2. NO HALLUCINATIONS: Do NOT invent, calculate, convert, or infer missing values.
-        3. NO PLACEHOLDERS: Do NOT use default or placeholder values.
-        4. EXACT MAP: Map raw literal values directly from the user prompt into parameter slots.
-        <|im_end|>
-        <|im_start|>user
-        {user_prompt}<|im_end|>
-        <|im_start|>assistant
-    """
+    end: float = time.time()
+    minutes = int((end - start) // 60)
+    seconds = int((end - start) % 60)
 
-    vocab = model.get_path_to_vocab_file()
-    #print(vocab)
-    with open(vocab) as f:
-        vocab_dict = json.load(f)
-        #print(vocab_dict)
-        #print("=============")
+    print(f"Call_Me_maybe took: {minutes}m/{seconds}s")
 
-    #id_ = vocab_dict["fn_add_numbers"]
-    #print(id_)
-    #print(model.decode(id_))
 
-    def return_pins(v):
-        vocab_pins = {}
-        for key in v:
-            vocab_pins.setdefault(key[0], {}).update({key: v[key]})
-            
-        #print(vocab_pins["p"])
-
-    return_pins(vocab_dict)
-    
-    fsm = FSM(functions)
-    fsm.build_state()    
-     
-    
-    
 if __name__ == "__main__":
     main()
-

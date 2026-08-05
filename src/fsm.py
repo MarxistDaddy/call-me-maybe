@@ -1,35 +1,44 @@
-from .validate import FncDefs
+from typing import Any
 
 
 class FSM:
-    def __init__(self, fcts) -> None:
+    def __init__(
+        self,
+        fncs: list[Any],
+        vocab_pins: dict[str, dict[str, int]],
+        all_vocab: dict[str, int],
+    ) -> None:
         self.state: int = 0
         self.prefix_tree: dict[int, dict[str | None, int]] = {}
-        self.functions = fcts
-        self.saved_state = 0
+        self.functions = fncs
+        self.vocab_pins = vocab_pins
+        self.all_vocab = all_vocab
+        self.saved_state: int = 0
+        self.current_state: int = 0
+        self.cache: dict[int, list[int]] = {}
 
     def tr_token(self, string: str) -> str:
+        """Converts spaces to 'Ġ' tokens for tokenizer compatibility."""
         return string.replace(" ", "Ġ")
 
-    def build_state(self):
+    def build_state(self) -> None:
         start = self.tr_token('{"name": "')
         params = self.tr_token('", "parameters": {')
 
-        # 1. Build common prefix: {"name": "
+        # 1. Build common JSON opening prefix: {"name": "
         for c in start:
             self.prefix_tree.setdefault(self.state, {})[c] = self.state + 1
             self.state += 1
-        
-        
-        self.saved_state = self.state #10
 
-        # 2. Iterate through function definitions | buid the name. parameter, values: fetch then store!
+        self.saved_state = self.state
+
+        # 2. Process each function schema definition
         for fnc in self.functions:
-            curr_fnc_state = self.saved_state #save the state == 10
+            curr_fnc_state = self.saved_state
 
-            # build the name first, after tokenizing it!
+            # Build shared prefix tree for function names
             for c in self.tr_token(fnc.name):
-                if c in self.prefix_tree.get(curr_fnc_state, {}): #does c exit at 10_state!
+                if c in self.prefix_tree.get(curr_fnc_state, {}):
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
                 else:
                     next_state = self.state + 1
@@ -37,8 +46,7 @@ class FSM:
                     self.state = next_state
                     curr_fnc_state = self.state
 
-
-            # Build parameters key branch
+            # Build shared parameter opening prefix: ", "parameters": {
             for c in params:
                 if c in self.prefix_tree.get(curr_fnc_state, {}):
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
@@ -48,18 +56,12 @@ class FSM:
                     self.state = next_state
                     curr_fnc_state = self.state
 
-            #length of parameters
             num_params = len(fnc.parameters)
-            #curr_fnc_state, and self.state == the same thing!
 
-            # 3. Build parameter keys and type constraints
+            # 3. Iterate through parameters to attach keys & types
             for index, (key, param_obj) in enumerate(fnc.parameters.items(), 1):
-                #a: type='number' | 1_index, (key: param_obj) | a type='number'
-
-                #choosing the format and first and > first keys of params!
                 prefix = f' "{key}": ' if index > 1 else f'"{key}": '
 
-                #tokenize the prefix
                 for c in self.tr_token(prefix):
                     if c in self.prefix_tree.get(curr_fnc_state, {}):
                         curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
@@ -69,16 +71,16 @@ class FSM:
                         self.state = next_state
                         curr_fnc_state = self.state
 
-                exit_states = self.build_type_state(curr_fnc_state, param_obj)
+                # Generate child states for the parameter type
+                exit_states = self.build_type_state(param_obj)
                 is_last_param = index == num_params
 
-                # 4. Handle parameter comma vs closing object braces
+                # 4. Handle transition out of parameter value (comma vs closing braces)
                 if is_last_param:
-                    # Collapse all valid exit states into a single unified "}}" tail
                     brace_1 = self.state + 1
                     for exit_s in exit_states:
                         self.prefix_tree.setdefault(exit_s, {})["}"] = brace_1
-                    
+
                     brace_2 = brace_1 + 1
                     self.prefix_tree.setdefault(brace_1, {})["}"] = brace_2
                     self.state = brace_2
@@ -89,10 +91,11 @@ class FSM:
                     self.state = next_s
                     curr_fnc_state = self.state
 
-        for k in self.prefix_tree:
-            print(f"{k}: {self.prefix_tree[k]}")
+        # Print full transition matrix
+        # for k in sorted(self.prefix_tree.keys()):
+        #     print(f"{k}: {self.prefix_tree[k]}")
 
-    def build_type_state(self, curr_state: int, param_obj) -> list[int]:
+    def build_type_state(self, param_obj: Any) -> list[int]:
         if hasattr(param_obj, "type"):
             param_type = param_obj.type
         elif isinstance(param_obj, dict):
@@ -101,89 +104,158 @@ class FSM:
             param_type = "string"
 
         if param_type == "integer":
-            return self.build_int_state(curr_state)
+            return self.build_int_state()
         elif param_type == "number":
             return self.build_number_state()
         else:
-            return self.build_string_state(curr_state)
+            return self.build_string_state()
 
+    def build_string_state(self) -> list[int]:
+        entry_s = self.state
+
+        # State -> opening quote
+        self.prefix_tree.setdefault(entry_s, {})['"'] = entry_s + 1
+        self.state += 1
+
+        # State -> loop on contents (None wildcard) and exit on terminating quote
+        self.prefix_tree.setdefault(self.state, {})[None] = self.state
+        self.prefix_tree[self.state]['"'] = self.state + 1
+        self.state += 1
+
+        return [self.state]
 
     def build_number_state(self) -> list[int]:
-        state = self.state
-        
-        f_nums = "-0123456789" # 48: -, 49: 0, 50: 1-9
+        base_s = self.state
+
+        # Initial sign / leading digit transitions
+        f_nums = "-0123456789"
         for c in f_nums:
             if c == "-":
-                self.prefix_tree.setdefault(state, {})[c] = state + 1 #48 
+                self.prefix_tree.setdefault(base_s, {})[c] = base_s + 1
             elif c == "0":
-                self.prefix_tree.setdefault(state, {})[c] = state + 2 #49
+                self.prefix_tree.setdefault(base_s, {})[c] = base_s + 2
             else:
-                self.prefix_tree.setdefault(state, {})[c] = state + 3 #50
+                self.prefix_tree.setdefault(base_s, {})[c] = base_s + 3
 
-        #state = 47
+        # Transitions following negative sign '-'
         for c in "0123456789":
             if c == "0":
-                self.prefix_tree.setdefault(state + 1, {})[c] = state + 2 #48: 0: '.' or ',' | 49
+                self.prefix_tree.setdefault(base_s + 1, {})[c] = base_s + 2
             else:
-                self.prefix_tree.setdefault(state + 1, {})[c] = state + 3 #48: all number | 50
+                self.prefix_tree.setdefault(base_s + 1, {})[c] = base_s + 3
 
-        # state+2 (just '0' or '-0') -> '.' -> state+4
-        # build the state after . | either number '1-9' or ','
-        self.prefix_tree.setdefault(state + 2, {})["."] = state + 4
+        # Allow decimal point after leading zero '0'
+        self.prefix_tree.setdefault(base_s + 2, {})["."] = base_s + 4
 
-        # state+3 (non-zero integer digits) -> '.' -> state+4 OR self-loop
-        self.prefix_tree.setdefault(state + 3, {})["."] = state + 4
+        # Allow extra digits or decimal point after leading non-zero digit
+        self.prefix_tree.setdefault(base_s + 3, {})["."] = base_s + 4
         for c in "0123456789":
-            self.prefix_tree.setdefault(state + 3, {})[c] = state + 3
+            self.prefix_tree.setdefault(base_s + 3, {})[c] = base_s + 3
 
-        # state+4 (after decimal point) -> must take at least one digit -> state+5
+        # First fractional digit mandatory after decimal point
         for c in "0123456789":
-            self.prefix_tree.setdefault(state + 4, {})[c] = state + 5
+            self.prefix_tree.setdefault(base_s + 4, {})[c] = base_s + 5
 
-        # state+5 (fractional digits self-loop)
+        # Subsequent optional fractional digits
         for c in "0123456789":
-            self.prefix_tree.setdefault(state + 5, {})[c] = state + 5
+            self.prefix_tree.setdefault(base_s + 5, {})[c] = base_s + 5
 
         self.state += 5
 
-        # Return ALL valid states where a number can stop generating
-        # state+2 = "0", state+3 = "42", state+5 = "42.5"
-        return [state + 2, state + 3, state + 5]
+        # NOTE: base_s + 4 is the state reached right after "." and BEFORE any
+        # fractional digit — it must NOT be an exit state, or malformed values
+        # like "1." followed directly by "," or "}" would be accepted.
+        # base_s + 2 (bare "0"), base_s + 3 (bare integer, no dot), and
+        # base_s + 5 (at least one fractional digit consumed) are the only
+        # valid places to exit a number.
+        return [base_s + 2, base_s + 3, base_s + 5]
 
-
-    def build_int_state(self, curr_state: int) -> list[int]:
-        S = curr_state
+    def build_int_state(self) -> list[int]:
+        base_s = self.state
 
         f_nums = "-0123456789"
         for c in f_nums:
             if c == "-":
-                self.prefix_tree.setdefault(S, {})[c] = S + 1
+                self.prefix_tree.setdefault(base_s, {})[c] = base_s + 1
             elif c == "0":
-                self.prefix_tree.setdefault(S, {})[c] = S + 2
+                self.prefix_tree.setdefault(base_s, {})[c] = base_s + 2
             else:
-                self.prefix_tree.setdefault(S, {})[c] = S + 3
+                self.prefix_tree.setdefault(base_s, {})[c] = base_s + 3
 
         for c in "0123456789":
             if c == "0":
-                self.prefix_tree.setdefault(S + 1, {})[c] = S + 2
+                self.prefix_tree.setdefault(base_s + 1, {})[c] = base_s + 2
             else:
-                self.prefix_tree.setdefault(S + 1, {})[c] = S + 3
+                self.prefix_tree.setdefault(base_s + 1, {})[c] = base_s + 3
 
         for c in "0123456789":
-            self.prefix_tree.setdefault(S + 3, {})[c] = S + 3
+            self.prefix_tree.setdefault(base_s + 3, {})[c] = base_s + 3
 
         self.state += 3
 
-        return [S + 2, S + 3]
-        
-    def build_string_state(self, curr_state: int) -> list[int]:
-        S = curr_state
+        return [base_s + 2, base_s + 3]
 
-        self.prefix_tree.setdefault(S, {})['"'] = S + 1
-        self.prefix_tree.setdefault(S + 1, {})[None] = S + 1
-        self.prefix_tree.setdefault(S + 1, {})['"'] = S + 2
+    def allowed_token(self, state: int):
+        allowed_tokens: list[int] = []
 
-        self.state += 2
+        if self.cache.get(state, None) is not None:
+            return self.cache[state]
 
-        return [S + 2]
+        if state not in self.prefix_tree:
+            return []
 
+        for key in self.prefix_tree[state]:
+            if key is None:
+                for token, token_id in self.all_vocab.items():
+                    allowed_tokens.append(token_id)
+                break
+
+            if key not in self.vocab_pins:
+                continue
+
+            for token in self.vocab_pins[key]:
+                tmp_state = state
+                flag = True
+                for c in token:
+                    curr_transitions = self.prefix_tree.get(tmp_state, {})
+                    if None in curr_transitions:
+                        tmp_state = curr_transitions[None]
+                    elif c in curr_transitions:
+                        tmp_state = curr_transitions[c]
+                        if tmp_state == -1:
+                            flag = False
+                            break
+                    else:
+                        flag = False
+                        break
+                if flag:
+                    tid = self.vocab_pins[key][token]
+                    if tid not in allowed_tokens:
+                        allowed_tokens.append(tid)
+
+        self.cache[state] = allowed_tokens
+        return allowed_tokens
+
+    def mask_logits(self, logits, allowed_tokens):
+        masked = [float("-inf")] * len(logits)
+
+        for token_id in allowed_tokens:
+            if token_id < len(logits):
+                masked[token_id] = logits[token_id]
+
+        return masked
+
+    def transition(self, token_str) -> None:
+        for c in self.tr_token(token_str):
+            if self.current_state == -1 or self.current_state not in self.prefix_tree:
+                break
+
+            edges = self.prefix_tree[self.current_state]
+
+            if c in edges:
+                self.current_state = edges[c]
+            elif None in edges:
+                self.current_state = edges[None]
+            else:
+                self.current_state = -1
+                break
