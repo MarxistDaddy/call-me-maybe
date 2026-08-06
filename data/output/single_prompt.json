@@ -1,0 +1,10 @@
+[
+    {
+        "prompt": "add 877787 and 2231231",
+        "name": "fn_add_numbers",
+        "parameters": {
+            "a": 877787,
+            "b": 2231231
+        }
+    }
+]

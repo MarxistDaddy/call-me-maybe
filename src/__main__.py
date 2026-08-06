@@ -11,8 +11,9 @@ from .parsing import Parser
 from .validate import PromptsList, FncDefs
 from src.fsm import FSM
 from src.utils import open_json, format_function, construct_vocab_pins
+from src.display import Display
 
-MAX_STEPS = 512  # safety cap so a desynced FSM can't loop forever
+#MAX_STEPS = 512  # safety cap so a desynced FSM can't loop forever
 
 
 def main():
@@ -32,11 +33,11 @@ def main():
             Path(directory).mkdir(parents=True, exist_ok=True)
 
     vocab_path = model.get_path_to_vocab_file()
-    print(vocab_path)
+    #print(vocab_path)
     vocab_json = open_json(model.get_path_to_vocab_file())
     vocab_pins = construct_vocab_pins(vocab_json)
 
-    print(valid_functions)
+    #print(valid_functions)
     fsm = FSM(valid_functions, vocab_pins, vocab_json)
     fsm.build_state()
 
@@ -57,11 +58,13 @@ def main():
         "<|im_start|>user\n"
     )
     s_prompt_encoded: list[int] = model.encode(super_prompt)[0].tolist()
+    
+    Display()
 
     start: float = time.time()
     result = []
-
-    print("params length:   ", len(valid_prompts))
+    
+    #print("params length:   ", len(valid_prompts))
     for p in valid_prompts:
         fsm.current_state = 0
         output = ""
@@ -70,18 +73,20 @@ def main():
         p_encoded: list[int] = model.encode(pre_p)[0].tolist()
         full_prompt: list[int] = s_prompt_encoded + p_encoded
 
-        print(f"Prompt: {p.prompt!r}")
-        print("Generating: ", end="", flush=True)
+        #print(f"Prompt: {p.prompt!r}")
+        #print("Generating: ", end="", flush=True)
+        
+
 
         steps = 0
         while True:
             steps += 1
-            if steps > MAX_STEPS:
-                print(
-                    f"\n[warn] hit MAX_STEPS for prompt: {p.prompt!r}, "
-                    f"partial output: {output!r}"
-                )
-                break
+            #if steps > MAX_STEPS:
+            #    print(
+            #        f"\n[warn] hit MAX_STEPS for prompt: {p.prompt!r}, "
+            #        f"partial output: {output!r}"
+            #    )
+            #    break
 
             logits = model.get_logits_from_input_ids(full_prompt)
             allowed_tokens = fsm.allowed_token(fsm.current_state)
