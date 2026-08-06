@@ -98,11 +98,11 @@ def main():
             # actually looping, it's stuck. Surface it immediately instead
             # of silently grinding to MAX_STEPS.
             if not allowed_tokens:
-                print(
-                    f"\n[warn] no allowed tokens at state {fsm.current_state} "
-                    f"(step {steps}) - FSM is stuck, breaking early. "
-                    f"partial output: {output!r}"
-                )
+                #print(
+                #    f"\n[warn] no allowed tokens at state {fsm.current_state} "
+                #    f"(step {steps}) - FSM is stuck, breaking early. "
+                #    f"partial output: {output!r}"
+                #)
                 break
 
             masked = fsm.mask_logits(logits, allowed_tokens)
@@ -153,7 +153,7 @@ def main():
     minutes = int((end - start) // 60)
     seconds = int((end - start) % 60)
 
-    print(f"Call_Me_maybe took: {minutes}m/{seconds}s")
+    print(f'Call_Me_maybe took: {minutes}m/{seconds}s')
 
 
 if __name__ == "__main__":

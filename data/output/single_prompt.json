@@ -1,10 +1,10 @@
 [
     {
-        "prompt": "add 877787 and 2231231",
+        "prompt": "add 2 and 40",
         "name": "fn_add_numbers",
         "parameters": {
-            "a": 877787,
-            "b": 2231231
+            "a": 2,
+            "b": 40
         }
     }
 ]
