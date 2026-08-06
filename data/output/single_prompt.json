@@ -3,8 +3,8 @@
         "prompt": "add 2 and 40",
         "name": "fn_add_numbers",
         "parameters": {
-            "a": 2,
-            "b": 40
+            "a": 2.0,
+            "b": 40.0
         }
     }
 ]

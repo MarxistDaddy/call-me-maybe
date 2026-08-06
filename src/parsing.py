@@ -24,12 +24,12 @@ class Parser:
 
         p.add_argument(
             "-i", "--input",
-            default="./data/input/boss.json"
+            default="data/input/function_calling_tests.json"
         )
 
         p.add_argument(
             "-o", "--output",
-            default="./data/output/single_prompt.json"
+            default="./data/output/output.json"
         )
 
         p.add_argument(

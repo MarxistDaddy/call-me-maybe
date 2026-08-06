@@ -33,30 +33,26 @@ def main():
             Path(directory).mkdir(parents=True, exist_ok=True)
 
     vocab_path = model.get_path_to_vocab_file()
-    #print(vocab_path)
     vocab_json = open_json(model.get_path_to_vocab_file())
     vocab_pins = construct_vocab_pins(vocab_json)
 
-    #print(valid_functions)
     fsm = FSM(valid_functions, vocab_pins, vocab_json)
     fsm.build_state()
 
     super_prompt = (
         "<|im_start|>system\n"
-        "You are a strict data extraction assistant. Your ONLY job "
-        "is to extract the exact values from the user's request to "
-        "pass as parameters.\n"
-        "Rules:\n"
-        "1. Extract ONLY the numbers or strings explicitly present in the "
-        "text.\n"
-        "2. DO NOT invent, calculate, or guess any missing values.\n"
-        "3. DO NOT use placeholder numbers.\n Map the exact digits found in "
-        "the prompt to the required parameter.\n"
-        "functions definition:"
+        "You are a function-calling assistant.\n"
+        "1. Pick the ONE function whose purpose matches the user's "
+        "request. Ignore numbers/words that don't fit that purpose.\n"
+        "2. Extract ONLY exact values explicitly present in the request "
+        "for that function's parameters. Never invent, calculate, or "
+        "guess.\n"
+        "functions:"
         f"{valid_functions}"
         "<|im_end|>"
         "<|im_start|>user\n"
     )
+
     s_prompt_encoded: list[int] = model.encode(super_prompt)[0].tolist()
     
     Display()
@@ -64,7 +60,6 @@ def main():
     start: float = time.time()
     result = []
     
-    #print("params length:   ", len(valid_prompts))
     for p in valid_prompts:
         fsm.current_state = 0
         output = ""
@@ -73,14 +68,9 @@ def main():
         p_encoded: list[int] = model.encode(pre_p)[0].tolist()
         full_prompt: list[int] = s_prompt_encoded + p_encoded
 
-        #print(f"Prompt: {p.prompt!r}")
-        #print("Generating: ", end="", flush=True)
-        
-
-
-        steps = 0
+        #steps = 0
         while True:
-            steps += 1
+            #steps += 1
             #if steps > MAX_STEPS:
             #    print(
             #        f"\n[warn] hit MAX_STEPS for prompt: {p.prompt!r}, "
@@ -139,9 +129,9 @@ def main():
             continue
 
         json_format = {"prompt": up, **json_format}
-        print(
-            json.dumps(json_format, indent=4, ensure_ascii=False), end="\n\n"
-        )
+        #print(
+        #    json.dumps(json_format, indent=4, ensure_ascii=False), end="\n\n"
+        #)
         result.append(json_format)
 
         # Write incrementally so a crash mid-run doesn't lose everything

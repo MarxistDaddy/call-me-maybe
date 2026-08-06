@@ -24,19 +24,15 @@ class FSM:
     def build_state(self) -> None:
         start = self.tr_token('{"name": "')
         params = self.tr_token('", "parameters": {')
-
-        # 1. Build common JSON opening prefix: {"name": "
         for c in start:
             self.prefix_tree.setdefault(self.state, {})[c] = self.state + 1
             self.state += 1
 
         self.saved_state = self.state
 
-        # 2. Process each function schema definition
         for fnc in self.functions:
             curr_fnc_state = self.saved_state
 
-            # Build shared prefix tree for function names
             for c in self.tr_token(fnc.name):
                 if c in self.prefix_tree.get(curr_fnc_state, {}):
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
@@ -46,7 +42,6 @@ class FSM:
                     self.state = next_state
                     curr_fnc_state = self.state
 
-            # Build shared parameter opening prefix: ", "parameters": {
             for c in params:
                 if c in self.prefix_tree.get(curr_fnc_state, {}):
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
@@ -58,7 +53,6 @@ class FSM:
 
             num_params = len(fnc.parameters)
 
-            # 3. Iterate through parameters to attach keys & types
             for index, (key, param_obj) in enumerate(fnc.parameters.items(), 1):
                 prefix = f' "{key}": ' if index > 1 else f'"{key}": '
 
@@ -71,11 +65,9 @@ class FSM:
                         self.state = next_state
                         curr_fnc_state = self.state
 
-                # Generate child states for the parameter type
                 exit_states = self.build_type_state(param_obj)
                 is_last_param = index == num_params
 
-                # 4. Handle transition out of parameter value (comma vs closing braces)
                 if is_last_param:
                     brace_1 = self.state + 1
                     for exit_s in exit_states:
@@ -90,10 +82,6 @@ class FSM:
                         self.prefix_tree.setdefault(exit_s, {})[","] = next_s
                     self.state = next_s
                     curr_fnc_state = self.state
-
-        # Print full transition matrix
-        # for k in sorted(self.prefix_tree.keys()):
-        #     print(f"{k}: {self.prefix_tree[k]}")
 
     def build_type_state(self, param_obj: Any) -> list[int]:
         if hasattr(param_obj, "type"):
@@ -113,11 +101,9 @@ class FSM:
     def build_string_state(self) -> list[int]:
         entry_s = self.state
 
-        # State -> opening quote
         self.prefix_tree.setdefault(entry_s, {})['"'] = entry_s + 1
         self.state += 1
 
-        # State -> loop on contents (None wildcard) and exit on terminating quote
         self.prefix_tree.setdefault(self.state, {})[None] = self.state
         self.prefix_tree[self.state]['"'] = self.state + 1
         self.state += 1
@@ -127,7 +113,6 @@ class FSM:
     def build_number_state(self) -> list[int]:
         base_s = self.state
 
-        # Initial sign / leading digit transitions
         f_nums = "-0123456789"
         for c in f_nums:
             if c == "-":
@@ -137,38 +122,28 @@ class FSM:
             else:
                 self.prefix_tree.setdefault(base_s, {})[c] = base_s + 3
 
-        # Transitions following negative sign '-'
         for c in "0123456789":
             if c == "0":
                 self.prefix_tree.setdefault(base_s + 1, {})[c] = base_s + 2
             else:
                 self.prefix_tree.setdefault(base_s + 1, {})[c] = base_s + 3
 
-        # Allow decimal point after leading zero '0'
         self.prefix_tree.setdefault(base_s + 2, {})["."] = base_s + 4
-
-        # Allow extra digits or decimal point after leading non-zero digit
         self.prefix_tree.setdefault(base_s + 3, {})["."] = base_s + 4
+
         for c in "0123456789":
             self.prefix_tree.setdefault(base_s + 3, {})[c] = base_s + 3
 
-        # First fractional digit mandatory after decimal point
         for c in "0123456789":
             self.prefix_tree.setdefault(base_s + 4, {})[c] = base_s + 5
 
-        # Subsequent optional fractional digits
         for c in "0123456789":
             self.prefix_tree.setdefault(base_s + 5, {})[c] = base_s + 5
 
         self.state += 5
 
-        # NOTE: base_s + 4 is the state reached right after "." and BEFORE any
-        # fractional digit — it must NOT be an exit state, or malformed values
-        # like "1." followed directly by "," or "}" would be accepted.
-        # base_s + 2 (bare "0"), base_s + 3 (bare integer, no dot), and
-        # base_s + 5 (at least one fractional digit consumed) are the only
-        # valid places to exit a number.
-        return [base_s + 2, base_s + 3, base_s + 5]
+        return [base_s + 5]
+
 
     def build_int_state(self) -> list[int]:
         base_s = self.state
