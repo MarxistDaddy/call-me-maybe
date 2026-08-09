@@ -2,12 +2,24 @@ from typing import Any
 
 
 class FSM:
+    """
+    Finite-state machine for constrained function-call generation.
+    """
     def __init__(
         self,
         fncs: list[Any],
         vocab_pins: dict[str, dict[str, int]],
         all_vocab: dict[str, int],
     ) -> None:
+        """
+        Initialize the finite-state machine.
+        Args:
+            fncs: Functions that the model is allowed to call.
+            vocab_pins: Mapping between token prefixes and token IDs.
+            all_vocab: Mapping of vocabulary tokens to token IDs.
+        Returns:
+            None.
+        """
         self.state: int = 0
         self.prefix_tree: dict[int, dict[str | None, int]] = {}
         self.functions = fncs
@@ -18,10 +30,17 @@ class FSM:
         self.cache: dict[int, list[int]] = {}
 
     def tr_token(self, string: str) -> str:
-        """Converts spaces to 'Ġ' tokens for tokenizer compatibility."""
+        """
+        Converts spaces to 'Ġ' tokens for tokenizer compatibility.
+        Returns:
+            str.
+        """
         return string.replace(" ", "Ġ")
 
     def build_state(self) -> None:
+        """
+        Build the prefix tree for valid function-call structures.
+        """
         start = self.tr_token('{"name": "')
         params = self.tr_token('", "parameters": {')
         for c in start:
@@ -38,7 +57,9 @@ class FSM:
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
                 else:
                     next_state = self.state + 1
-                    self.prefix_tree.setdefault(curr_fnc_state, {})[c] = next_state
+                    self.prefix_tree.setdefault(
+                        curr_fnc_state, {}
+                    )[c] = next_state
                     self.state = next_state
                     curr_fnc_state = self.state
 
@@ -47,13 +68,17 @@ class FSM:
                     curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
                 else:
                     next_state = self.state + 1
-                    self.prefix_tree.setdefault(curr_fnc_state, {})[c] = next_state
+                    self.prefix_tree.setdefault(
+                        curr_fnc_state, {}
+                    )[c] = next_state
                     self.state = next_state
                     curr_fnc_state = self.state
 
             num_params = len(fnc.parameters)
 
-            for index, (key, param_obj) in enumerate(fnc.parameters.items(), 1):
+            for index, (key, param_obj) in enumerate(
+                fnc.parameters.items(), 1
+            ):
                 prefix = f' "{key}": ' if index > 1 else f'"{key}": '
 
                 for c in self.tr_token(prefix):
@@ -61,7 +86,9 @@ class FSM:
                         curr_fnc_state = self.prefix_tree[curr_fnc_state][c]
                     else:
                         next_state = self.state + 1
-                        self.prefix_tree.setdefault(curr_fnc_state, {})[c] = next_state
+                        self.prefix_tree.setdefault(
+                            curr_fnc_state, {}
+                        )[c] = next_state
                         self.state = next_state
                         curr_fnc_state = self.state
 
@@ -84,6 +111,13 @@ class FSM:
                     curr_fnc_state = self.state
 
     def build_type_state(self, param_obj: Any) -> list[int]:
+        """
+        Build the state transitions for a parameter type.
+        Args:
+            param_obj: Parameter whose type determines the state structure.
+        Returns:
+            Exit states generated for the parameter type.
+        """
         if hasattr(param_obj, "type"):
             param_type = param_obj.type
         elif isinstance(param_obj, dict):
@@ -99,6 +133,11 @@ class FSM:
             return self.build_string_state()
 
     def build_string_state(self) -> list[int]:
+        """
+        Build states that accept a JSON string value.
+        Returns:
+            The state that can be used after the string value.
+        """
         entry_s = self.state
 
         self.prefix_tree.setdefault(entry_s, {})['"'] = entry_s + 1
@@ -111,6 +150,11 @@ class FSM:
         return [self.state]
 
     def build_number_state(self) -> list[int]:
+        """
+        Build states that accept a JSON floating-point number.
+        Returns:
+            The final state for a valid number.
+        """
         base_s = self.state
 
         f_nums = "-0123456789"
@@ -144,10 +188,13 @@ class FSM:
 
         return [base_s + 5]
 
-
     def build_int_state(self) -> list[int]:
+        """
+        Build states that accept a JSON integer value.
+        Returns:
+            The states representing valid integer endings.
+        """
         base_s = self.state
-
         f_nums = "-0123456789"
         for c in f_nums:
             if c == "-":
@@ -170,7 +217,7 @@ class FSM:
 
         return [base_s + 2, base_s + 3]
 
-    def allowed_token(self, state: int):
+    def allowed_token(self, state: int) -> list[int]:
         allowed_tokens: list[int] = []
 
         if self.cache.get(state, None) is not None:
@@ -211,7 +258,7 @@ class FSM:
         self.cache[state] = allowed_tokens
         return allowed_tokens
 
-    def mask_logits(self, logits, allowed_tokens):
+    def mask_logits(self, logits, allowed_tokens) -> list[float]:
         masked = [float("-inf")] * len(logits)
 
         for token_id in allowed_tokens:
@@ -222,7 +269,10 @@ class FSM:
 
     def transition(self, token_str) -> None:
         for c in self.tr_token(token_str):
-            if self.current_state == -1 or self.current_state not in self.prefix_tree:
+            if (
+                self.current_state == -1
+                or self.current_state not in self.prefix_tree
+            ):
                 break
 
             edges = self.prefix_tree[self.current_state]

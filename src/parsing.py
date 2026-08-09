@@ -2,33 +2,39 @@ import argparse
 
 
 class Parser:
-    def __init__(self):
-        self.fnc_def: str = ""        
-        self.input: str = ""        
-        self.output: str = ""        
-        self.model: str = ""        
+    def __init__(self) -> None:
+        self.fnc_def: str = ""
+        self.input: str = ""
+        self.output: str = ""
+        self.model: str = ""
 
-
-    def parsing(self):
-        p = argparse.ArgumentParser(usage=
-            "uv main.py --functions_definition <function_def> "
-            "--input <input>"
-            "--output <output>"
-            "--model <model>"
+    def parsing(self) -> None:
+        p = argparse.ArgumentParser(
+            usage=(
+                "uv main.py --functions_definition <function_def> "
+                "--input <input>"
+                "--output <output>"
+                "--model <model>"
+            )
         )
-        p.add_argument("-f", "--functions_definition",
+        p.add_argument(
+            "-f",
+            "--functions_definition",
             default="./data/input/functions_definition.json"
         )
         p.add_argument(
-            "-i", "--input",
+            "-i",
+            "--input",
             default="data/input/function_calling_tests.json"
         )
         p.add_argument(
-            "-o", "--output",
+            "-o",
+            "--output",
             default="./data/output/output.json"
         )
         p.add_argument(
-            "-m", "--model",
+            "-m",
+            "--model",
             default="Qwen/Qwen3-0.6b"
         )
         args = p.parse_args()

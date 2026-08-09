@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+
 class PromptItem(BaseModel):
     prompt: str
 
@@ -8,7 +9,6 @@ class PromptsList(BaseModel):
     prompts: list[PromptItem]
 
 
-#isnt this wrong? type!!
 class ReturnType(BaseModel):
     type: str
 

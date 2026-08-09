@@ -11,17 +11,26 @@ from rich import print
 
 from llm_sdk import Small_LLM_Model
 from .parsing import Parser
-from .validate import FncDefs, PromptsList
+from .validate import PromptsList
 from src.display import Display
 from src.fsm import FSM
 from src.utils import construct_vocab_pins, format_function, open_json
 
 
-def initialize_pipeline(parser: Parser):
-    """Handles parser and resource loading in a single block to avoid duplicate exception handling."""
+def initialize_pipeline(parser: Parser) -> tuple[
+    Any,
+    Any,
+    Any,
+    Any,
+    Any
+] | None:
+    """
+        Handles parser and resource loading in a single block
+        to avoid duplicate exception handling.
+    """
+
     try:
         parser.parsing()
-        
         model = Small_LLM_Model()
         input_json = open_json(parser.input)
         valid_prompts = PromptsList(prompts=input_json).prompts
@@ -35,7 +44,13 @@ def initialize_pipeline(parser: Parser):
 
     except FileNotFoundError as e:
         print(f"[Error] Required file missing: {e}")
-    except (json.JSONDecodeError, ValidationError, KeyError, TypeError, ValueError) as e:
+    except (
+        json.JSONDecodeError,
+        ValidationError,
+        KeyError,
+        TypeError,
+        ValueError
+    ) as e:
         print(f"[Error] Data validation or JSON parsing failed: {e}")
     except Exception as e:
         print(f"[Error] Unexpected setup failure: {e}")
@@ -43,19 +58,21 @@ def initialize_pipeline(parser: Parser):
     return None
 
 
-def main():
+def main() -> None:
     init_res = initialize_pipeline(parse := Parser())
     if not init_res:
         sys.exit(1)
 
     model, valid_prompts, valid_functions, vocab_json, vocab_pins = init_res
     output_path = Path(parse.output)
-    
     if output_path.parent != Path("."):
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            print(f"[Error] Could not create output directory '{output_path.parent}': {e}")
+            print(
+                f"[Error] Could not create output directory "
+                f"'{output_path.parent}': {e}"
+            )
             sys.exit(1)
 
     try:
@@ -88,7 +105,7 @@ def main():
     Display()
 
     start: float = time.time()
-    result = []
+    result: list[dict[str, Any]] = []
 
     for p in valid_prompts:
         fsm.current_state = 0
@@ -126,7 +143,10 @@ def main():
         try:
             json_format = json.loads(output_escaped)
         except json.JSONDecodeError:
-            print(f"[Error] Failed to parse model output JSON for prompt: {p.prompt!r} -> {output!r}")
+            print(
+                f"[Error] Failed to parse model output JSON for prompt: "
+                f"{p.prompt!r} -> {output!r}"
+            )
             continue
 
         result.append({"prompt": p.prompt, **json_format})
