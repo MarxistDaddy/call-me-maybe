@@ -3,7 +3,7 @@ from typing import Any
 from .validate import FncDefs
 
 
-def open_json(file: str) -> list[Any]:
+def open_json(file: str) -> Any:
     with open(file) as f:
         return json.load(f)
 

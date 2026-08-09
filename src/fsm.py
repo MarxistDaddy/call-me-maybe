@@ -258,8 +258,12 @@ class FSM:
         self.cache[state] = allowed_tokens
         return allowed_tokens
 
-    def mask_logits(self, logits, allowed_tokens) -> list[float]:
-        masked = [float("-inf")] * len(logits)
+    def mask_logits(
+        self,
+        logits: Any,
+        allowed_tokens: list[int]
+    ) -> list[float]:
+        masked: list[float] = [float("-inf")] * len(logits)
 
         for token_id in allowed_tokens:
             if token_id < len(logits):
@@ -267,7 +271,7 @@ class FSM:
 
         return masked
 
-    def transition(self, token_str) -> None:
+    def transition(self, token_str: str) -> None:
         for c in self.tr_token(token_str):
             if (
                 self.current_state == -1
